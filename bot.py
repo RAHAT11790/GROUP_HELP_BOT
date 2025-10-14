@@ -1,13 +1,13 @@
 import logging
 import json
 import os
-import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from telegram.constants import ParseMode
 import re
 from flask import Flask
 from threading import Thread
+import time
 
 # Flask app for Render
 app = Flask(__name__)
@@ -16,24 +16,26 @@ app = Flask(__name__)
 def home():
     return "Bot is running!"
 
+@app.route('/health')
+def health():
+    return "OK"
+
 def run_flask():
     app.run(host='0.0.0.0', port=5000)
 
-# লগিং কনফিগারেশন - Unbuffered for Render
+# লগিং কনফিগারেশন
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[logging.StreamHandler(sys.stdout)]
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
 # ডাটা ফাইল নাম
 KEYWORD_DATA_FILE = "keyword_data.json"
 PHOTO_DATA_FILE = "photo_data.json"
-ADMIN_DATA_FILE = "admin_data.json"
 
-# Environment variables from Render - Token must be set, no fallback
-BOT_TOKEN = os.environ['BOT_TOKEN']
+# Environment variables from Render
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8437757573:AAHz-hT0E6pzIzJpkL3rtzLVR5oihqsbWhk')
 ADMIN_IDS = [int(x.strip()) for x in os.environ.get('ADMIN_IDS', '6621572366,-1002892874648').split(',')]
 
 # ফটো সেট করার জন্য টেম্পোরারি স্টোরেজ
@@ -72,16 +74,6 @@ def load_data():
     except Exception as e:
         logger.error(f"Photo data load error: {e}")
     
-    # Load admins from file if exists, merge with env
-    try:
-        if os.path.exists(ADMIN_DATA_FILE):
-            with open(ADMIN_DATA_FILE, 'r') as f:
-                file_admins = json.load(f)
-                ADMIN_IDS.extend(file_admins)
-                ADMIN_IDS = list(set(ADMIN_IDS))  # Dedupe
-    except Exception as e:
-        logger.error(f"Admin data load error: {e}")
-    
     return keyword_store, photo_store
 
 # ডাটা সেভ করার ফাংশন
@@ -97,19 +89,12 @@ def save_data(keyword_store, photo_store):
             json.dump(photo_store, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"Photo data save error: {e}")
-    
-    # Save admins
-    try:
-        with open(ADMIN_DATA_FILE, 'w') as f:
-            json.dump(ADMIN_IDS, f)
-    except Exception as e:
-        logger.error(f"Admin data save error: {e}")
 
 # ডাটা লোড করুন
 keyword_store, photo_store = load_data()
 
 # ওয়েলকাম মেসেজ টেমপ্লেট
-WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪, 𝒕𝒉𝒆 𝒖𝒍𝒕𝒊𝒎𝒂𝒕𝒆 𝒉𝒖𝒃 𝒇𝒐𝒓 𝒂𝒍𝒍 𝒂𝒏𝒊𝒎𝒆 𝒍𝒐𝒗𝒆𝒓𝒔! 🎉
+WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪, 𝒕𝒉𝒆 𝒖𝒍𝒕𝒊𝒎𝒂𝒕𝒆 𝒉𝒖𝒃 𝒇𝒐𝒓 𝒂𝒍𝒍 𝒂𝒏𝒊𝒎𝒆 𝒍𝒐𝒗𝒆𝒓𝒔! 🎉
 
 💫 Watch every twist, every turn —
 🔓 100% FREE
@@ -292,7 +277,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         for keyword, link in keyword_store[str(chat_id)].items():
             # Case insensitive search
             if keyword.lower() in text.lower():
-                logger.info(f"Keyword match: {keyword} for chat {chat_id}")
                 # mention তৈরি করুন
                 mention = message.from_user.mention_markdown()
                 
@@ -324,7 +308,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                                 parse_mode=ParseMode.MARKDOWN
                             )
                     except Exception as e:
-                        logger.error(f"Media reply error: {e}")
                         # যদি ফটো/GIF সেন্ড করতে সমস্যা হয়, শুধু টেক্সট সেন্ড করুন
                         await message.reply_text(
                             welcome_message,
@@ -478,7 +461,6 @@ async def add_admin(update: Update, context: CallbackContext) -> None:
         new_admin_id = int(context.args[0])
         if new_admin_id not in ADMIN_IDS:
             ADMIN_IDS.append(new_admin_id)
-            save_data(keyword_store, photo_store)  # Saves admins too
             await update.message.reply_text(f'✅ এডমিন অ্যাড করা হয়েছে! User ID: {new_admin_id}')
         else:
             await update.message.reply_text('❌ এই ইউজার ইতিমধ্যেই এডমিন!')
@@ -494,13 +476,8 @@ async def show_admins(update: Update, context: CallbackContext) -> None:
     admin_list = "\n".join([f"• `{admin_id}`" for admin_id in ADMIN_IDS])
     await update.message.reply_text(f"👑 **বর্তমান এডমিনরা:**\n{admin_list}", parse_mode=ParseMode.MARKDOWN)
 
-def main() -> None:
-    # Flask server start in separate thread
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    # বট টোকেন ব্যবহার করুন
+def run_bot():
+    """Run the telegram bot"""
     try:
         application = Application.builder().token(BOT_TOKEN).build()
 
@@ -522,16 +499,22 @@ def main() -> None:
         # ফটো এবং GIF হ্যান্ডলার
         application.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
 
-        logger.info("Bot handlers added successfully")
-        print("বট চলছে...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
-    except AttributeError as e:
-        if '_polling_cleanup_cb' in str(e):
-            logger.error("PTB Updater error—upgrade python-telegram-bot to >=22.5 for Python 3.13 compat.")
-        raise
+        print("বট শুরু হচ্ছে...")
+        application.run_polling()
+        
     except Exception as e:
-        logger.error(f"Bot startup failed: {e}")
-        raise
+        print(f"Bot error: {e}")
+        time.sleep(5)
+        run_bot()  # Restart bot on error
+
+def main():
+    # Flask server start in separate thread
+    flask_thread = Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Start bot
+    run_bot()
 
 if __name__ == '__main__':
     main()
