@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import sys
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -18,20 +19,22 @@ def home():
 def run_flask():
     app.run(host='0.0.0.0', port=5000)
 
-# লগিং কনফিগারেশন
+# লগিং কনফিগারেশন - Unbuffered for Render
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
 # ডাটা ফাইল নাম
 KEYWORD_DATA_FILE = "keyword_data.json"
 PHOTO_DATA_FILE = "photo_data.json"
+ADMIN_DATA_FILE = "admin_data.json"
 
-# Environment variables from Render
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-ADMIN_IDS = [int(x.strip()) for x in os.environ.get('ADMIN_IDS').split(',')]
+# Environment variables from Render - Token must be set, no fallback
+BOT_TOKEN = os.environ['BOT_TOKEN']
+ADMIN_IDS = [int(x.strip()) for x in os.environ.get('ADMIN_IDS', '6621572366,-1002892874648').split(',')]
 
 # ফটো সেট করার জন্য টেম্পোরারি স্টোরেজ
 photo_temp = {}
@@ -69,6 +72,16 @@ def load_data():
     except Exception as e:
         logger.error(f"Photo data load error: {e}")
     
+    # Load admins from file if exists, merge with env
+    try:
+        if os.path.exists(ADMIN_DATA_FILE):
+            with open(ADMIN_DATA_FILE, 'r') as f:
+                file_admins = json.load(f)
+                ADMIN_IDS.extend(file_admins)
+                ADMIN_IDS = list(set(ADMIN_IDS))  # Dedupe
+    except Exception as e:
+        logger.error(f"Admin data load error: {e}")
+    
     return keyword_store, photo_store
 
 # ডাটা সেভ করার ফাংশন
@@ -84,12 +97,19 @@ def save_data(keyword_store, photo_store):
             json.dump(photo_store, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"Photo data save error: {e}")
+    
+    # Save admins
+    try:
+        with open(ADMIN_DATA_FILE, 'w') as f:
+            json.dump(ADMIN_IDS, f)
+    except Exception as e:
+        logger.error(f"Admin data save error: {e}")
 
 # ডাটা লোড করুন
 keyword_store, photo_store = load_data()
 
 # ওয়েলকাম মেসেজ টেমপ্লেট
-WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪, 𝒕𝒉𝒆 𝒖𝒍𝒕𝒊𝒎𝒂𝒕𝒆 𝒉𝒖𝒃 𝒇𝒐𝒓 𝒂𝒍𝒍 𝒂𝒏𝒊𝒎𝒆 𝒍𝒐𝒗𝒆𝒓𝒔! 🎉
+WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪, 𝒕𝒉𝒆 𝒖𝒍𝒕𝒊𝒎𝒂𝒕𝒆 𝒉𝒖𝒃 𝒇𝒐𝒓 𝒂𝒍𝒍 𝒂𝒏𝒊𝒎𝒆 𝒍𝒐𝒗𝒆𝒓𝒔! 🎉
 
 💫 Watch every twist, every turn —
 🔓 100% FREE
@@ -183,9 +203,9 @@ async def bulk_add_keywords(update: Update, context: CallbackContext) -> None:
         "```\n\n"
         "উদাহরণ:\n"
         "```\n"
-        "md [Naruto,Anime] link1\n"
-        "md [One Piece] link2\n"
-        "md [Dragon Ball,DBZ] link\n"
+        "md [Naruto,Anime] https://t.me/link1\n"
+        "md [One Piece] https://t.me/link2\n"
+        "md [Dragon Ball,DBZ] https://t.me/link3\n"
         "```\n\n"
         "💡 **নোট:** শুধু `md` দিয়ে শুরু করতে হবে, `/md` নয়!"
     )
@@ -272,6 +292,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         for keyword, link in keyword_store[str(chat_id)].items():
             # Case insensitive search
             if keyword.lower() in text.lower():
+                logger.info(f"Keyword match: {keyword} for chat {chat_id}")
                 # mention তৈরি করুন
                 mention = message.from_user.mention_markdown()
                 
@@ -303,6 +324,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
                                 parse_mode=ParseMode.MARKDOWN
                             )
                     except Exception as e:
+                        logger.error(f"Media reply error: {e}")
                         # যদি ফটো/GIF সেন্ড করতে সমস্যা হয়, শুধু টেক্সট সেন্ড করুন
                         await message.reply_text(
                             welcome_message,
@@ -356,7 +378,7 @@ async def delete_filter(update: Update, context: CallbackContext) -> None:
             # লিংকটি সেভ করে রাখুন (কনফার্মেশনে দেখানোর জন্য)
             link = keyword_store[str(chat_id)][found_keyword]
             del keyword_store[str(chat_id)][found_keyword]
-            # ডাটا সেভ করুন
+            # ডাটা সেভ করুন
             save_data(keyword_store, photo_store)
             await update.message.reply_text(
                 f'✅ কীওয়ার্ড ডিলিট করা হয়েছে!\n\n'
@@ -456,6 +478,7 @@ async def add_admin(update: Update, context: CallbackContext) -> None:
         new_admin_id = int(context.args[0])
         if new_admin_id not in ADMIN_IDS:
             ADMIN_IDS.append(new_admin_id)
+            save_data(keyword_store, photo_store)  # Saves admins too
             await update.message.reply_text(f'✅ এডমিন অ্যাড করা হয়েছে! User ID: {new_admin_id}')
         else:
             await update.message.reply_text('❌ এই ইউজার ইতিমধ্যেই এডমিন!')
@@ -478,29 +501,37 @@ def main() -> None:
     flask_thread.start()
     
     # বট টোকেন ব্যবহার করুন
-    application = Application.builder().token(BOT_TOKEN).build()
+    try:
+        application = Application.builder().token(BOT_TOKEN).build()
 
-    # কমান্ড হ্যান্ডলার
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("rs", set_filter))  # একক কীওয়ার্ড সেট
-    application.add_handler(CommandHandler("md", bulk_add_keywords))  # বাল্ক কীওয়ার্ড এড
-    application.add_handler(CommandHandler("list", list_keywords))  # শুধু কীওয়ার্ড লিস্ট
-    application.add_handler(CommandHandler("delfilter", delete_filter))  # কীওয়ার্ড ডিলিট (এডমিন)
-    application.add_handler(CommandHandler("clear", clear_filters))  # সব ডিলিট (এডমিন)
-    application.add_handler(CommandHandler("photo", set_photo))  # ফটো সেট (এডমিন) - দুই ধাপে
-    application.add_handler(CommandHandler("removephoto", remove_photo))  # ফটো রিমুভ (এডমিন)
-    application.add_handler(CommandHandler("addadmin", add_admin))  # নতুন এডমিন অ্যাড (এডমিন)
-    application.add_handler(CommandHandler("admins", show_admins))  # এডমিন লিস্ট দেখাবে (এডমিন)
-    
-    # মেসেজ হ্যান্ডলার
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # ফটো এবং GIF হ্যান্ডলার
-    application.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
+        # কমান্ড হ্যান্ডলার
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("rs", set_filter))  # একক কীওয়ার্ড সেট
+        application.add_handler(CommandHandler("md", bulk_add_keywords))  # বাল্ক কীওয়ার্ড এড
+        application.add_handler(CommandHandler("list", list_keywords))  # শুধু কীওয়ার্ড লিস্ট
+        application.add_handler(CommandHandler("delfilter", delete_filter))  # কীওয়ার্ড ডিলিট (এডমিন)
+        application.add_handler(CommandHandler("clear", clear_filters))  # সব ডিলিট (এডমিন)
+        application.add_handler(CommandHandler("photo", set_photo))  # ফটো সেট (এডমিন) - দুই ধাপে
+        application.add_handler(CommandHandler("removephoto", remove_photo))  # ফটো রিমুভ (এডমিন)
+        application.add_handler(CommandHandler("addadmin", add_admin))  # নতুন এডমিন অ্যাড (এডমিন)
+        application.add_handler(CommandHandler("admins", show_admins))  # এডমিন লিস্ট দেখাবে (এডমিন)
+        
+        # মেসেজ হ্যান্ডলার
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        # ফটো এবং GIF হ্যান্ডলার
+        application.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
 
-    # বট শুরু করুন
-    print("বট চলছে...")
-    application.run_polling()
+        logger.info("Bot handlers added successfully")
+        print("বট চলছে...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except AttributeError as e:
+        if '_polling_cleanup_cb' in str(e):
+            logger.error("PTB Updater error—upgrade python-telegram-bot to >=22.5 for Python 3.13 compat.")
+        raise
+    except Exception as e:
+        logger.error(f"Bot startup failed: {e}")
+        raise
 
 if __name__ == '__main__':
     main()
