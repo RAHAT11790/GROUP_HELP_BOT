@@ -2,36 +2,29 @@ import logging
 import json
 import os
 import re
-from flask import Flask
-from threading import Thread
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from telegram.constants import ParseMode
+from flask import Flask
 
-# ------------------- Flask Server for UptimeRobot -------------------
-flask_app = Flask(__name__)
+# Flask app for Render
+app = Flask(__name__)
 
-@flask_app.route('/')
+@app.route('/')
 def home():
-    return "✅ RS Group Bot is Alive!"
+    return "Bot is running!"
 
-def run():
-    flask_app.run(host="0.0.0.0", port=8080)
-
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
-
-# ------------------- Logging -------------------
+# লগিং সেটআপ
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ------------------- File Names -------------------
+# ডাটা ফাইলের নাম
 FILTER_FILE = "filters_data.json"
 PHOTO_FILE = "photo_data.json"
 ADMIN_FILE = "admin_data.json"
 
-# ------------------- Helper Functions -------------------
+# ------------------- হেল্পার ফাংশন -------------------
+
 def load_json(file, default):
     if os.path.exists(file):
         with open(file, "r", encoding="utf-8") as f:
@@ -42,40 +35,57 @@ def save_json(file, data):
     with open(file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ------------------- Load Data -------------------
+# ------------------- ডাটা লোড -------------------
+
 keyword_store = load_json(FILTER_FILE, {})
 photo_store = load_json(PHOTO_FILE, {})
-ADMIN_IDS = load_json(ADMIN_FILE, [6621572366])
+ADMIN_IDS = load_json(ADMIN_FILE, [])
 
-# ------------------- Bot Token (Render Environment Variable) -------------------
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN not found! Please set it in Render Environment Variables.")
+# Render-এ environment variable থেকে এডমিন আইডি লোড
+env_admin = os.getenv('ADMIN_IDS')
+if env_admin:
+    try:
+        ADMIN_IDS.extend([int(id.strip()) for id in env_admin.split(',')])
+    except:
+        pass
+
+# যদি কোনো এডমিন না থাকে, ডিফল্ট হিসেবে একটি যোগ করুন
+if not ADMIN_IDS:
+    ADMIN_IDS = [6621572366]
+
+# ------------------- বট সেটআপ -------------------
+
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪 🎉
 
-💫 𝐖𝐚𝐭𝐜𝐡 𝐞𝐯𝐞𝐫𝐲 𝐭𝐰𝐢𝐬𝐭, 𝐞𝐯𝐞𝐫𝐲 𝐭𝐮𝐫𝐧 —
-🗣️ 𝐈𝐧 𝐇𝐢𝐧𝐝𝐢 𝐃𝐮𝐛𝐛𝐢𝐧𝐠
-🎬 𝒊𝒇 𝒚𝒐𝒖 𝒇𝒊𝒏𝒅 𝒂𝒏𝒚 𝒂𝒏𝒊𝒎𝒆 𝒕𝒚𝒑𝒆 𝒏𝒂𝒎𝒆 𝒐𝒏𝒍𝒚  
-
-🍿 𝑯𝒂𝒑𝒑𝒚 𝑾𝒂𝒕𝒄𝒉𝒊𝒏𝒈!
-⬇️𝐂𝐋𝐈𝐂𝐊 𝐓𝐇𝐈𝐒 𝐁𝐔𝐓𝐓𝐎𝐍⬇️"""
+💫 Watch every twist, every turn —
+🔓 100% FREE
+🗣️ Now with Hindi Dubbing
+📚 All Seasons • All Episodes
+💎 Join:@CARTOONFUNNY03
+"""
 
 photo_temp = {}
 
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-# ------------------- Commands -------------------
+# ------------------- কমান্ড -------------------
+
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
-        "👋 হ্যালো! আমি RS Group Bot!\n\n"
+        "👋 হ্যালো! আমি Anime Keyword Bot!\n\n"
         "একসাথে অনেকগুলো কীওয়ার্ড যোগ করতে:\n"
-        "/rs\n[Name] লিংক\n[Another] লিংক\n\n"
+        "/rs\n"
+        "[Naruto] https://link1\n"
+        "[Attack on Titan] https://link2\n"
+        "[One Piece, OP] https://link3\n\n"
         "📸 /photo - ফটো বা GIF সেট করতে\n"
         "👑 /addadmin user_id - নতুন এডমিন অ্যাড করতে"
     )
 
+# ✅ একসাথে অনেক কীওয়ার্ড যোগ
 async def set_filter(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -109,6 +119,7 @@ async def set_filter(update: Update, context: CallbackContext):
     save_json(FILTER_FILE, keyword_store)
     await update.message.reply_text(f"✅ মোট {added_count} কীওয়ার্ড সেভ হয়েছে (স্থায়ীভাবে)!")
 
+# ✅ টেক্সট হ্যান্ডলার
 async def handle_message(update: Update, context: CallbackContext):
     message = update.message
     chat_id = str(message.chat_id)
@@ -132,6 +143,7 @@ async def handle_message(update: Update, context: CallbackContext):
                     await message.reply_text(msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
                 break
 
+# ✅ কীওয়ার্ড লিস্ট
 async def list_keywords(update: Update, context: CallbackContext):
     chat_id = str(update.effective_chat.id)
     if chat_id in keyword_store and keyword_store[chat_id]:
@@ -142,6 +154,7 @@ async def list_keywords(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("❌ কোনো কীওয়ার্ড সেট করা নেই।")
 
+# ✅ কীওয়ার্ড ডিলিট
 async def delete_filter(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -162,6 +175,7 @@ async def delete_filter(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("❌ কীওয়ার্ডটি পাওয়া যায়নি।")
 
+# ✅ সব ফিল্টার ক্লিয়ার
 async def clear_filters(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -174,6 +188,7 @@ async def clear_filters(update: Update, context: CallbackContext):
     save_json(FILTER_FILE, keyword_store)
     await update.message.reply_text(f"✅ সব ফিল্টার ডিলিট হয়েছে! মোট: {count}")
 
+# ✅ ফটো সেট
 async def set_photo(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -183,6 +198,7 @@ async def set_photo(update: Update, context: CallbackContext):
     await update.message.reply_text("📸 এখন একটি ফটো বা GIF পাঠান...")
     photo_temp[user_id] = {"chat_id": chat_id, "waiting": True}
 
+# ✅ ফটো রিসিভ
 async def handle_photo(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -202,6 +218,7 @@ async def handle_photo(update: Update, context: CallbackContext):
         await update.message.reply_text("✅ ফটো/GIF সেভ হয়েছে (স্থায়ীভাবে)!")
         del photo_temp[user_id]
 
+# ✅ ফটো রিমুভ
 async def remove_photo(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -215,6 +232,7 @@ async def remove_photo(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text("❌ কোনো ফটো সেট করা নেই।")
 
+# ✅ নতুন এডমিন যোগ
 async def add_admin(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     if not is_admin(user_id):
@@ -234,26 +252,38 @@ async def add_admin(update: Update, context: CallbackContext):
         else:
             await update.message.reply_text("❌ এই ইউজার ইতিমধ্যেই এডমিন।")
     except ValueError:
-        await update.message.reply_text("❌ সঠিক ইউজার আইডি দিন।")
+        await update.message.reply_text("❌ সঠিক ইউজার আইডি দিন。")
 
-# ------------------- Main -------------------
-def main():
-    keep_alive()
-    app = Application.builder().token(BOT_TOKEN).build()
+# ------------------- বট রান -------------------
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("rs", set_filter))
-    app.add_handler(CommandHandler("list", list_keywords))
-    app.add_handler(CommandHandler("delfilter", delete_filter))
-    app.add_handler(CommandHandler("clear", clear_filters))
-    app.add_handler(CommandHandler("photo", set_photo))
-    app.add_handler(CommandHandler("removephoto", remove_photo))
-    app.add_handler(CommandHandler("addadmin", add_admin))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
+def run_bot():
+    # Render-এ PORT environment variable থেকে পোর্ট নিন
+    port = int(os.environ.get('PORT', 5000))
+    
+    # বট তৈরি করুন
+    bot_app = Application.builder().token(BOT_TOKEN).build()
 
-    print("✅ RS Group Bot চলছে... Render + Flask সক্রিয়!")
-    app.run_polling()
+    bot_app.add_handler(CommandHandler("start", start))
+    bot_app.add_handler(CommandHandler("rs", set_filter))
+    bot_app.add_handler(CommandHandler("list", list_keywords))
+    bot_app.add_handler(CommandHandler("delfilter", delete_filter))
+    bot_app.add_handler(CommandHandler("clear", clear_filters))
+    bot_app.add_handler(CommandHandler("photo", set_photo))
+    bot_app.add_handler(CommandHandler("removephoto", remove_photo))
+    bot_app.add_handler(CommandHandler("addadmin", add_admin))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    bot_app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
+
+    print("✅ Bot চলছে... (Render + Flask)")
+    
+    # Webhook এর পরিবর্তে polling ব্যবহার করুন
+    bot_app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    # বট এবং Flask একসাথে রান করবে
+    import threading
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
