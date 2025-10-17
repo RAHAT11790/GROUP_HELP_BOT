@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import re
+import threading
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from telegram.constants import ParseMode
@@ -14,8 +15,15 @@ app = Flask(__name__)
 def home():
     return "Bot is running!"
 
+@app.route('/health')
+def health():
+    return "OK", 200
+
 # লগিং সেটআপ
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # ডাটা ফাইলের নাম
@@ -26,14 +34,20 @@ ADMIN_FILE = "admin_data.json"
 # ------------------- হেল্পার ফাংশন -------------------
 
 def load_json(file, default):
-    if os.path.exists(file):
-        with open(file, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        if os.path.exists(file):
+            with open(file, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading {file}: {e}")
     return default
 
 def save_json(file, data):
-    with open(file, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        with open(file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving {file}: {e}")
 
 # ------------------- ডাটা লোড -------------------
 
@@ -45,17 +59,24 @@ ADMIN_IDS = load_json(ADMIN_FILE, [])
 env_admin = os.getenv('ADMIN_IDS')
 if env_admin:
     try:
-        ADMIN_IDS.extend([int(id.strip()) for id in env_admin.split(',')])
-    except:
-        pass
+        admin_ids = [int(id.strip()) for id in env_admin.split(',')]
+        ADMIN_IDS.extend(admin_ids)
+        ADMIN_IDS = list(set(ADMIN_IDS))  # ডুপ্লিকেট রিমুভ
+    except Exception as e:
+        logger.error(f"Error parsing ADMIN_IDS: {e}")
 
 # যদি কোনো এডমিন না থাকে, ডিফল্ট হিসেবে একটি যোগ করুন
 if not ADMIN_IDS:
     ADMIN_IDS = [6621572366]
+    logger.info(f"Default admin set: {ADMIN_IDS}")
 
 # ------------------- বট সেটআপ -------------------
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN environment variable not set!")
+    # Fallback token (আপনার আসলে টোকেন দিবেন Environment variable-এ)
+    BOT_TOKEN = "8437757573:AAHz-hT0E6pzIzJpkL3rtzLVR5oihqsbWhk"
 
 WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪 🎉
 
@@ -117,7 +138,7 @@ async def set_filter(update: Update, context: CallbackContext):
             added_count += 1
 
     save_json(FILTER_FILE, keyword_store)
-    await update.message.reply_text(f"✅ মোট {added_count} কীওয়ার্ড সেভ হয়েছে (স্থায়ীভাবে)!")
+    await update.message.reply_text(f"✅ মোট {added_count} কীওয়ার্ড সেভ হয়েছে!")
 
 # ✅ টেক্সট হ্যান্ডলার
 async def handle_message(update: Update, context: CallbackContext):
@@ -136,9 +157,19 @@ async def handle_message(update: Update, context: CallbackContext):
                 if chat_id in photo_store and photo_store[chat_id]:
                     info = photo_store[chat_id]
                     if info["type"] == "gif":
-                        await message.reply_animation(animation=info["file_id"], caption=msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                        await message.reply_animation(
+                            animation=info["file_id"], 
+                            caption=msg, 
+                            reply_markup=markup, 
+                            parse_mode=ParseMode.MARKDOWN
+                        )
                     else:
-                        await message.reply_photo(photo=info["file_id"], caption=msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                        await message.reply_photo(
+                            photo=info["file_id"], 
+                            caption=msg, 
+                            reply_markup=markup, 
+                            parse_mode=ParseMode.MARKDOWN
+                        )
                 else:
                     await message.reply_text(msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
                 break
@@ -203,7 +234,7 @@ async def handle_photo(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
 
-    if user_id in photo_temp and photo_temp[user_id]["waiting"]:
+    if user_id in photo_temp and photo_temp[user_id].get("waiting"):
         if update.message.photo:
             file_id = update.message.photo[-1].file_id
             photo_store[chat_id] = {"file_id": file_id, "type": "photo"}
@@ -215,7 +246,7 @@ async def handle_photo(update: Update, context: CallbackContext):
             return
 
         save_json(PHOTO_FILE, photo_store)
-        await update.message.reply_text("✅ ফটো/GIF সেভ হয়েছে (স্থায়ীভাবে)!")
+        await update.message.reply_text("✅ ফটো/GIF সেভ হয়েছে!")
         del photo_temp[user_id]
 
 # ✅ ফটো রিমুভ
@@ -257,33 +288,42 @@ async def add_admin(update: Update, context: CallbackContext):
 # ------------------- বট রান -------------------
 
 def run_bot():
-    # Render-এ PORT environment variable থেকে পোর্ট নিন
-    port = int(os.environ.get('PORT', 5000))
-    
-    # বট তৈরি করুন
-    bot_app = Application.builder().token(BOT_TOKEN).build()
+    try:
+        logger.info("Starting Telegram Bot...")
+        
+        # বট তৈরি করুন
+        bot_app = Application.builder().token(BOT_TOKEN).build()
 
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(CommandHandler("rs", set_filter))
-    bot_app.add_handler(CommandHandler("list", list_keywords))
-    bot_app.add_handler(CommandHandler("delfilter", delete_filter))
-    bot_app.add_handler(CommandHandler("clear", clear_filters))
-    bot_app.add_handler(CommandHandler("photo", set_photo))
-    bot_app.add_handler(CommandHandler("removephoto", remove_photo))
-    bot_app.add_handler(CommandHandler("addadmin", add_admin))
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    bot_app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
+        # হ্যান্ডলার যোগ করুন
+        bot_app.add_handler(CommandHandler("start", start))
+        bot_app.add_handler(CommandHandler("rs", set_filter))
+        bot_app.add_handler(CommandHandler("list", list_keywords))
+        bot_app.add_handler(CommandHandler("delfilter", delete_filter))
+        bot_app.add_handler(CommandHandler("clear", clear_filters))
+        bot_app.add_handler(CommandHandler("photo", set_photo))
+        bot_app.add_handler(CommandHandler("removephoto", remove_photo))
+        bot_app.add_handler(CommandHandler("addadmin", add_admin))
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        bot_app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
 
-    print("✅ Bot চলছে... (Render + Flask)")
-    
-    # Webhook এর পরিবর্তে polling ব্যবহার করুন
-    bot_app.run_polling()
+        logger.info("✅ Bot started successfully! (Render + Flask)")
+        
+        # Polling শুরু করুন
+        bot_app.run_polling()
+        
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
 
-if __name__ == "__main__":
-    # বট এবং Flask একসাথে রান করবে
-    import threading
+def start_bot():
+    """বট আলাদা থ্রেডে চালান"""
     bot_thread = threading.Thread(target=run_bot)
     bot_thread.daemon = True
     bot_thread.start()
+
+if __name__ == "__main__":
+    # বট শুরু করুন
+    start_bot()
     
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    # Flask app চালান
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
