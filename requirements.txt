@@ -1,1 +1,2 @@
-Flask>=2.0\ngunicorn>=21.0\n
+flask
+python-telegram-bot==20.8
