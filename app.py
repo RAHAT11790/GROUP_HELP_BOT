@@ -54,12 +54,12 @@ if not BOT_TOKEN:
 
 WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪 🎉
 
-💫 Watch every twist, every turn —
-🔓 100% FREE
-🗣️ Now with Hindi Dubbing
-📚 All Seasons • All Episodes
-💎 Join:@CARTOONFUNNY03
-"""
+💫 𝐖𝐚𝐭𝐜𝐡 𝐞𝐯𝐞𝐫𝐲 𝐭𝐰𝐢𝐬𝐭, 𝐞𝐯𝐞𝐫𝐲 𝐭𝐮𝐫𝐧 —
+🗣️ 𝐈𝐧 𝐇𝐢𝐧𝐝𝐢 𝐃𝐮𝐛𝐛𝐢𝐧𝐠
+🎬 𝒊𝒇 𝒚𝒐𝒖 𝒇𝒊𝒏𝒅 𝒂𝒏𝒚 𝒂𝒏𝒊𝒎𝒆 𝒕𝒚𝒑𝒆 𝒏𝒂𝒎𝒆 𝒐𝒏𝒍𝒚  
+
+🍿 𝑯𝒂𝒑𝒑𝒚 𝑾𝒂𝒕𝒄𝒉𝒊𝒏𝒈!
+⬇️𝐂𝐋𝐈𝐂𝐊 𝐓𝐇𝐈𝐒 𝐁𝐔𝐓𝐓𝐎𝐍⬇️"""
 
 photo_temp = {}
 
