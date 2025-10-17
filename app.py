@@ -37,13 +37,13 @@ ADMIN_IDS = load_json(ADMIN_FILE, [6621572366])  # ডিফল্ট এডম�
 
 BOT_TOKEN = "8437757573:AAHz-hT0E6pzIzJpkL3rtzLVR5oihqsbWhk"
 
-WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪 🎉
-
-💫 Watch every twist, every turn —
-🔓 100% FREE
-🗣️ Now with Hindi Dubbing
-📚 All Seasons • All Episodes
-💎 Join:@CARTOONFUNNY03
+WELCOME_TEMPLATE = """🔥 𝗪𝗘𝗟𝗖𝗢𝗠𝗘 𓆩{mention}𓆪 🔥
+━━━━━━━━━━━━━━━━━━━
+🎬 𝑬𝒗𝒆𝒓𝒚 𝑻𝒘𝒊𝒔𝒕, 𝑬𝒗𝒆𝒓𝒚 𝑻𝒖𝒓𝒏 — 𝐈𝐧 𝐇𝐢𝐧𝐝𝐢 𝐃𝐮𝐛𝐛𝐢𝐧𝐠 🎧
+⚡ 𝐓𝐲𝐩𝐞 𝐘𝐨𝐮𝐫 𝐅𝐚𝐯𝐨𝐮𝐫𝐢𝐭𝐞 𝐀𝐧𝐢𝐦𝐞 𝐚𝐧𝐝 𝐄𝐧𝐣𝐨𝐲 𝐍𝐨𝐰 💪
+🍿 𝑯𝒂𝒑𝒑𝒚 𝑾𝒂𝒕𝒄𝒉𝒊𝒏𝒈 𝑾𝒂𝒓𝒓𝒊𝒐𝒓! ⚔️
+━━━━━━━━━━━━━━━━━━━
+🔰 𝙅𝙤𝙞𝙣 𝙊𝙪𝙧 𝘾𝙤𝙢𝙢𝙪𝙣𝙞𝙩𝙮: @CARTOONFUNNY03
 """
 
 photo_temp = {}
