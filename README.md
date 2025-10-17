@@ -1,27 +1,36 @@
-# Telegram Group Help Anime Bot
+# RS-GROUP-BOT (Flask uptime server)
 
-A powerful Telegram bot for anime keyword automation with bulk processing.
+Simple Flask server intended to be used with UptimeRobot to keep your bot or service alive when deployed on Render (or similar).
 
-## Features
-- Keyword auto-reply system
-- Bulk keyword addition
-- Photo/GIF support
-- Admin management
-- Data persistence
+## Files
+- `app.py` — Flask application with `/` and `/health` endpoints.
+- `requirements.txt` — Python dependencies.
+- `Dockerfile` — Container build file for Render or Docker hosts.
+- `.gitignore` — Common ignores.
 
-## Deployment on Render
+## Local run
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+export PORT=5000
+python app.py
+```
 
-1. Fork this repository
-2. Go to [Render.com](https://render.com)
-3. Create a new Web Service
-4. Connect your GitHub repository
-5. Set environment variables:
-   - `BOT_TOKEN`: Your Telegram bot token
-   - `ADMIN_IDS`: Comma-separated admin IDs (e.g., `6621572366,-1002892874648`)
+## Docker (local)
+```bash
+docker build -t rs-group-bot .
+docker run -p 5000:5000 rs-group-bot
+```
 
-## Commands
-- `/start` - Show help
-- `/rs [keywords] link` - Single keyword
-- `/md` - Bulk keywords
-- `/list` - Show keywords
-- `/photo` - Set photo/GIF
+## Deploy to Render
+1. Create a GitHub repo named `RS-GROUP-BOT` and push these files.
+2. On Render, click **New** → **Web Service** → Connect GitHub → Select the repo.
+3. Choose **Docker** (Render will use the Dockerfile) and deploy.
+4. After deploy, use `/health` endpoint for UptimeRobot monitoring.
+
+## UptimeRobot
+- Add a new monitor of type `HTTP(s)` pointing to `https://your-render-url/health`.
+- Set check interval (e.g., 5 minutes).
+
+That's it — your RS group uptime server will reply with JSON at `/health` and plain text at `/`.
