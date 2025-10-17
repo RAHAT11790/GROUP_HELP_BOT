@@ -2,23 +2,32 @@ import logging
 import json
 import os
 import re
+import asyncio
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from telegram.constants import ParseMode
 
-# ---------- Flask App ----------
+# ------------------- Flask -------------------
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "✅ Bot is Alive!"
+    return "✅ Bot is Alive on Railway!"
 
-# ---------- Logging ----------
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# ------------------- Logging -------------------
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# ---------- JSON Utilities ----------
+# ------------------- Files -------------------
+FILTER_FILE = "filters_data.json"
+PHOTO_FILE = "photo_data.json"
+ADMIN_FILE = "admin_data.json"
+
+# ------------------- JSON Helper -------------------
 def load_json(file, default):
     if os.path.exists(file):
         with open(file, "r", encoding="utf-8") as f:
@@ -29,18 +38,19 @@ def save_json(file, data):
     with open(file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ---------- Files ----------
-FILTER_FILE = "filters_data.json"
-PHOTO_FILE = "photo_data.json"
-ADMIN_FILE = "admin_data.json"
-
+# ------------------- Data -------------------
 keyword_store = load_json(FILTER_FILE, {})
 photo_store = load_json(PHOTO_FILE, {})
 ADMIN_IDS = load_json(ADMIN_FILE, [6621572366])
 
-# ---------- Config ----------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-RAILWAY_URL = os.getenv("RAILWAY_URL", "https://YOUR-RAILWAY-APP-NAME.up.railway.app")
+# ------------------- Bot Settings -------------------
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+RAILWAY_URL = os.environ.get("RAILWAY_URL")
+
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN environment variable missing")
+if not RAILWAY_URL:
+    raise ValueError("❌ RAILWAY_URL environment variable missing")
 
 WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}𓆪 🎉
 
@@ -53,11 +63,10 @@ WELCOME_TEMPLATE = """🎉 𝑾𝒆𝒍𝒄𝒐𝒎𝒆 𝒕𝒐 𓆩{mention}�
 
 photo_temp = {}
 
-# ---------- Helpers ----------
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
-# ---------- Commands ----------
+# ------------------- Commands -------------------
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text(
         "👋 হ্যালো! আমি Anime Keyword Bot!\n\n"
@@ -70,9 +79,11 @@ async def start(update: Update, context: CallbackContext):
         "👑 /addadmin user_id - নতুন এডমিন অ্যাড করতে"
     )
 
+# ✅ Add filters
 async def set_filter(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
+
     if not is_admin(user_id):
         await update.message.reply_text("❌ আপনি এডমিন নন!")
         return
@@ -100,8 +111,9 @@ async def set_filter(update: Update, context: CallbackContext):
             added_count += 1
 
     save_json(FILTER_FILE, keyword_store)
-    await update.message.reply_text(f"✅ মোট {added_count} কীওয়ার্ড সেভ হয়েছে (স্থায়ীভাবে)!")
+    await update.message.reply_text(f"✅ মোট {added_count} কীওয়ার্ড সেভ হয়েছে!")
 
+# ✅ Keyword match reply
 async def handle_message(update: Update, context: CallbackContext):
     message = update.message
     chat_id = str(message.chat_id)
@@ -125,34 +137,7 @@ async def handle_message(update: Update, context: CallbackContext):
                     await message.reply_text(msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
                 break
 
-async def list_keywords(update: Update, context: CallbackContext):
-    chat_id = str(update.effective_chat.id)
-    if chat_id in keyword_store and keyword_store[chat_id]:
-        msg = "🎬 **কীওয়ার্ড লিস্ট:**\n"
-        for k, v in keyword_store[chat_id].items():
-            msg += f"• `{k}` → {v}\n"
-        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-    else:
-        await update.message.reply_text("❌ কোনো কীওয়ার্ড সেট করা নেই।")
-
-async def delete_filter(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ আপনি এডমিন নন!")
-        return
-    if len(context.args) < 1:
-        await update.message.reply_text("ব্যবহার: /delfilter keyword")
-        return
-
-    kw = context.args[0].lower()
-    if chat_id in keyword_store and kw in keyword_store[chat_id]:
-        del keyword_store[chat_id][kw]
-        save_json(FILTER_FILE, keyword_store)
-        await update.message.reply_text(f"✅ '{kw}' মুছে ফেলা হয়েছে!")
-    else:
-        await update.message.reply_text("❌ কীওয়ার্ডটি পাওয়া যায়নি।")
-
+# ✅ Admin commands (clear, photo, etc.)
 async def clear_filters(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = str(update.effective_chat.id)
@@ -162,91 +147,31 @@ async def clear_filters(update: Update, context: CallbackContext):
     count = len(keyword_store.get(chat_id, {}))
     keyword_store[chat_id] = {}
     save_json(FILTER_FILE, keyword_store)
-    await update.message.reply_text(f"✅ সব ফিল্টার ডিলিট হয়েছে! মোট: {count}")
+    await update.message.reply_text(f"✅ সব ফিল্টার মুছে ফেলা হয়েছে ({count})!")
 
-async def set_photo(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ আপনি এডমিন নন!")
-        return
-    await update.message.reply_text("📸 এখন একটি ফটো বা GIF পাঠান...")
-    photo_temp[user_id] = {"chat_id": chat_id, "waiting": True}
+# ------------------- Application -------------------
+application = Application.builder().token(BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("rs", set_filter))
+application.add_handler(CommandHandler("clear", clear_filters))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-async def handle_photo(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
+# ------------------- Webhook -------------------
+@flask_app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    asyncio.create_task(application.process_update(update))
+    return "ok", 200
 
-    if user_id in photo_temp and photo_temp[user_id]["waiting"]:
-        if update.message.photo:
-            file_id = update.message.photo[-1].file_id
-            photo_store[chat_id] = {"file_id": file_id, "type": "photo"}
-        elif update.message.animation:
-            file_id = update.message.animation.file_id
-            photo_store[chat_id] = {"file_id": file_id, "type": "gif"}
-        else:
-            await update.message.reply_text("❌ ফটো বা GIF দিন।")
-            return
-        save_json(PHOTO_FILE, photo_store)
-        await update.message.reply_text("✅ ফটো/GIF সেভ হয়েছে!")
-        del photo_temp[user_id]
-
-async def remove_photo(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    chat_id = str(update.effective_chat.id)
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ আপনি এডমিন নন!")
-        return
-    if chat_id in photo_store:
-        del photo_store[chat_id]
-        save_json(PHOTO_FILE, photo_store)
-        await update.message.reply_text("✅ ফটো/GIF রিমুভ হয়েছে!")
-    else:
-        await update.message.reply_text("❌ কোনো ফটো সেট করা নেই।")
-
-async def add_admin(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if not is_admin(user_id):
-        await update.message.reply_text("❌ আপনি এডমিন নন!")
-        return
-    if len(context.args) < 1:
-        await update.message.reply_text("ব্যবহার: /addadmin user_id")
-        return
-    try:
-        new_admin = int(context.args[0])
-        if new_admin not in ADMIN_IDS:
-            ADMIN_IDS.append(new_admin)
-            save_json(ADMIN_FILE, ADMIN_IDS)
-            await update.message.reply_text(f"✅ নতুন এডমিন অ্যাড হয়েছে: {new_admin}")
-        else:
-            await update.message.reply_text("❌ এই ইউজার ইতিমধ্যেই এডমিন।")
-    except ValueError:
-        await update.message.reply_text("❌ সঠিক ইউজার আইডি দিন।")
-
-# ---------- Webhook Setup ----------
-def main():
-    global app
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("rs", set_filter))
-    app.add_handler(CommandHandler("list", list_keywords))
-    app.add_handler(CommandHandler("delfilter", delete_filter))
-    app.add_handler(CommandHandler("clear", clear_filters))
-    app.add_handler(CommandHandler("photo", set_photo))
-    app.add_handler(CommandHandler("removephoto", remove_photo))
-    app.add_handler(CommandHandler("addadmin", add_admin))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
-
-    @flask_app.route(f"/{BOT_TOKEN}", methods=["POST"])
-    def webhook():
-        update = Update.de_json(request.get_json(force=True), app.bot)
-        app.update_queue.put(update)
-        return "ok"
-
-    PORT = int(os.environ.get("PORT", 8080))
-    app.run_webhook(listen="0.0.0.0", port=PORT, url_path=BOT_TOKEN, webhook_url=f"{RAILWAY_URL}/{BOT_TOKEN}")
-
+# ------------------- Run -------------------
 if __name__ == "__main__":
-    main()
+    print("🚀 Starting Flask + Telegram Webhook...")
+    PORT = int(os.environ.get("PORT", 8080))
+
+    async def set_webhook():
+        url = f"{RAILWAY_URL}/{BOT_TOKEN}"
+        await application.bot.set_webhook(url=url)
+        print(f"✅ Webhook set successfully at {url}")
+
+    asyncio.run(set_webhook())
+    flask_app.run(host="0.0.0.0", port=PORT)
