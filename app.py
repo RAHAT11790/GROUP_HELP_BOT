@@ -51,6 +51,50 @@ photo_temp = {}
 def is_admin(user_id):
     return user_id in ADMIN_IDS
 
+def clean_keyword(text):
+    """কীওয়ার্ড ক্লিনআপ করে শুধু মূল শব্দগুলো বের করে"""
+    # বিশেষ কারাক্টার রিমুভ করুন
+    cleaned = re.sub(r'[❖◆★▪•‣✧📡@#ᴏғғɪᴄɪᴀʟ]', '', text)
+    # ব্র্যাকেট এবং অতিরিক্ত স্পেস রিমুভ করুন
+    cleaned = re.sub(r'[\(\)\[\]\{\}]', '', cleaned)
+    # ড্যাশ/হাইফেন রিমুভ করুন
+    cleaned = re.sub(r'[-–—]', ' ', cleaned)
+    # একাধিক স্পেস রিমুভ করুন
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    # লাইন ব্রেক রিমুভ করুন
+    cleaned = cleaned.replace('\n', ' ').replace('\r', ' ')
+    # প্রান্তের স্পেস ট্রিম করুন এবং লোয়ারকেস করুন
+    return cleaned.strip().lower()
+
+def find_matching_keyword(user_text, keyword_store, chat_id):
+    """ইউজারের টেক্সটে কোনো কীওয়ার্ড ম্যাচ করছে কিনা চেক করুন"""
+    if chat_id not in keyword_store:
+        return None
+    
+    user_text_clean = clean_keyword(user_text)
+    user_words = set(user_text_clean.split())
+    
+    # ডিবাগিং জন্য
+    logger.info(f"ইউজার টেক্সট ক্লিন: {user_text_clean}")
+    logger.info(f"ইউজার ওয়ার্ডস: {user_words}")
+    
+    for keyword, link in keyword_store[chat_id].items():
+        keyword_clean = clean_keyword(keyword)
+        keyword_words = set(keyword_clean.split())
+        
+        # যদি ইউজারের টেক্সটে কীওয়ার্ডের সব শব্দ থাকে
+        if keyword_words.issubset(user_words):
+            logger.info(f"ম্যাচ পাওয়া গেছে: {keyword} -> {link}")
+            return link
+        
+        # অথবা যদি কীওয়ার্ডের ৭০%+ শব্দ মেলে
+        common_words = keyword_words.intersection(user_words)
+        if len(common_words) >= len(keyword_words) * 0.7:
+            logger.info(f"পার্শিয়াল ম্যাচ: {keyword} -> {link}")
+            return link
+    
+    return None
+
 # ------------------- কমান্ড -------------------
 
 async def start(update: Update, context: CallbackContext):
@@ -99,29 +143,45 @@ async def set_filter(update: Update, context: CallbackContext):
     save_json(FILTER_FILE, keyword_store)
     await update.message.reply_text(f"✅ মোট {added_count} কীওয়ার্ড সেভ হয়েছে (স্থায়ীভাবে)!")
 
-# ✅ টেক্সট হ্যান্ডলার
+# ✅ টেক্সট হ্যান্ডলার - IMPROVED VERSION
 async def handle_message(update: Update, context: CallbackContext):
     message = update.message
     chat_id = str(message.chat_id)
-    text = message.text.lower() if message.text else ""
+    text = message.text if message.text else ""
+
+    if not text.strip():
+        return
+
+    # ডিবাগ লগ
+    logger.info(f"ইউজার মেসেজ: {text}")
 
     if chat_id in keyword_store:
-        for keyword, link in keyword_store[chat_id].items():
-            if keyword in text:
-                mention = message.from_user.mention_markdown()
-                msg = WELCOME_TEMPLATE.format(mention=mention)
-                buttons = [[InlineKeyboardButton("📥 WATCH & DOWNLOAD 📥", url=link)]]
-                markup = InlineKeyboardMarkup(buttons)
+        matched_link = find_matching_keyword(text, keyword_store, chat_id)
+        
+        if matched_link:
+            mention = message.from_user.mention_markdown()
+            msg = WELCOME_TEMPLATE.format(mention=mention)
+            buttons = [[InlineKeyboardButton("📥 WATCH & DOWNLOAD 📥", url=matched_link)]]
+            markup = InlineKeyboardMarkup(buttons)
 
-                if chat_id in photo_store and photo_store[chat_id]:
-                    info = photo_store[chat_id]
-                    if info["type"] == "gif":
-                        await message.reply_animation(animation=info["file_id"], caption=msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-                    else:
-                        await message.reply_photo(photo=info["file_id"], caption=msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+            if chat_id in photo_store and photo_store[chat_id]:
+                info = photo_store[chat_id]
+                if info["type"] == "gif":
+                    await message.reply_animation(
+                        animation=info["file_id"], 
+                        caption=msg, 
+                        reply_markup=markup, 
+                        parse_mode=ParseMode.MARKDOWN
+                    )
                 else:
-                    await message.reply_text(msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-                break
+                    await message.reply_photo(
+                        photo=info["file_id"], 
+                        caption=msg, 
+                        reply_markup=markup, 
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+            else:
+                await message.reply_text(msg, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
 
 # ✅ কীওয়ার্ড লিস্ট
 async def list_keywords(update: Update, context: CallbackContext):
@@ -250,7 +310,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION, handle_photo))
 
-    print("✅ Bot চলছে... (স্থায়ী ডেটা সিস্টেম সক্রিয়)")
+    print("✅ Bot চলছে... (স্মার্ট কীওয়ার্ড ম্যাচিং সক্রিয়)")
     app.run_polling()
 
 if __name__ == "__main__":
