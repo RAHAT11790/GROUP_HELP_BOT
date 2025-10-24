@@ -1,2 +1,6 @@
-python-telegram-bot==21.6
-Flask==3.0.3
+pyTelegramBotAPI==4.15.2
+flask==2.3.3
+requests==2.31.0
+psutil==5.9.5
+python-dotenv==1.0.0
+gunicorn==21.2.0
